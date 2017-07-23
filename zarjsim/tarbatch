@@ -1,0 +1,12 @@
+#!/bin/bash
+if [ ! -d "$1" ] ; then
+    echo Specify batch dir and file name
+    exit 2
+fi
+
+if [ "$#" -lt 2 ] ; then
+    echo Specify batch dir and file name
+    exit 2
+fi
+
+tar -czvf $2 `find -L $1 -type f`

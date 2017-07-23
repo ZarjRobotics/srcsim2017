@@ -1,0 +1,6 @@
+#!/bin/bash
+
+p=`dirname $0`
+BATCH_SCRIPT_DIR=`(cd $p; pwd)`
+
+$BATCH_SCRIPT_DIR/batch $@ 1 1 2 0 find_satellite

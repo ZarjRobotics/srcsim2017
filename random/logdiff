@@ -1,0 +1,43 @@
+#!/bin/bash
+if [ ! -f "$1" -o ! -f "$2" ] ; then
+    echo Error: specify two files to compare
+    exit 1
+fi
+
+a="$1"
+abase=`basename "$a"`
+adiff="/tmp/$abase.logdiff"
+
+b="$2"
+bbase=`basename "$b"`
+bdiff="/tmp/$bbase.logdiff"
+
+function cleanse()
+{
+    echo $1 to $2
+    sed \
+      -e "s,\x1B\[[0-9;]*[a-zA-Z],,g" \
+      -e 's/\(Script started on \).*$/\1/g' \
+      -e 's/\(logging to\).*$/\1/g' \
+      -e 's/\(started roslaunch server\).*$/\1/g' \
+      -e 's/\(control_py_\).* /\1/g' \
+      -e 's/\(controller_manager_\).* /\1/g' \
+      -e 's/\(controller_spawner_\).* /\1/g' \
+      -e 's/\(grasping_init_\).* /\1/g' \
+      -e 's/\(sim_smt_topic_creator_\).* /\1/g' \
+      -e 's/\(smtcore_\).* /\1/g' \
+      -e 's/\(urdf_spawner_\).* /\1/g' \
+      -e 's/pid \[.*\]/pid [XXPIDXX]/g' \
+      -e 's/\(setting .run_id to\).*$/\1/g' \
+      -e 's/process\[\(.*\)\[.*\]/process[\1[XXPIDXX]/g' \
+      -e 's/\(setting .run_id to\).*$/\1/g' \
+      -e 's/WallTime: .*\]/WallTime: XXX]/g' \
+      -e 's/INFO\] \[.*\]:/INFO] [XXX]:]/g' \
+      -e 's/^log file: .*$/log file: XXX/g' \
+      "$1" > "$2"
+}
+
+cleanse "$a" "$adiff"
+cleanse "$b" "$bdiff"
+
+diff -u "$adiff" "$bdiff"

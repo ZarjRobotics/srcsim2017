@@ -1,0 +1,5 @@
+#!/bin/bash
+p=`dirname $0`
+BATCH_SCRIPT_DIR=`(cd $p; pwd)`
+
+$BATCH_SCRIPT_DIR/batch $@ 2 4 2 6 pickup_cable_prep

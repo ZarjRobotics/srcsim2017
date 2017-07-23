@@ -1,0 +1,16 @@
+diff -u old/init_robot.sh new/init_robot.sh
+--- old/init_robot.sh	2017-04-19 12:38:49.361339370 -0500
++++ new/init_robot.sh	2017-04-19 13:00:20.949329842 -0500
+@@ -2,8 +2,10 @@
+ 
+ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+ 
+-echo -e "\e[32mINIT:\e[0m Wait 15s (ROS time) for system to load"
+-python $DIR/rossleep.py 15
++[ -z "$ZARJ_LOAD_TIME" ] && ZARJ_LOAD_TIME=15
++echo -e "\e[32mINIT:\e[0m Wait $ZARJ_LOAD_TIME seconds (ROS time) for system to load"
++
++python $DIR/rossleep.py $ZARJ_LOAD_TIME
+ 
+ echo -e "\e[32mINIT:\e[0m Lower harness"
+ rostopic pub -1 /valkyrie/harness/velocity std_msgs/Float32 '{data: -0.05}'

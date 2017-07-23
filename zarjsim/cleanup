@@ -1,0 +1,23 @@
+#!/bin/bash
+
+function cleanup() {
+    fcpids=`ps --noheaders -o pid,cmd -C "python"  | grep fc.py | sed -e 's/^ *//g' | cut -f 1 -d ' '`
+    ocpid=`ps --noheaders -o pid,cmd -C "python"  | grep oc.py | cut -f 1 -d ' '`
+    killall roslaunch 2>/dev/null && sleep 20
+    killall gzserver 2>/dev/null && sleep 5
+    killall rosmaster 2>/dev/null && sleep 5
+    killall controller_exec 2>/dev/null && sleep 5
+    killall rosout 2>/dev/null && sleep 5
+    kill $fcpids 2>/dev/null && sleep 2
+    kill $ocpid 2>/dev/null && sleep 2
+    killall -9 roslaunch 2>/dev/null
+    killall -9 gzserver 2>/dev/null
+    killall -9 rosmaster 2>/dev/null
+    killall -9 controller_exec 2>/dev/null
+    killall -9 rosout 2>/dev/null
+    kill -9 $fcpids 2>/dev/null
+    kill -9 $ocpid 2>/dev/null
+}
+
+cleanup
+

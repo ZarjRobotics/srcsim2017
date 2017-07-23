@@ -1,0 +1,17 @@
+#!/bin/bash
+p=`dirname $0`
+d=`(cd $p; pwd)`
+
+# Not clear if the chill makes any difference...
+#export ZARJ_CHILL=120
+
+$d/batch $d/../qual2/start2 $d/../qual2/q2.py
+$d/batch $d/../qual2/start2 $d/../qual2/q2.py
+$d/batch $d/../qual2/start2 $d/../qual2/q2.py
+$d/batch $d/../qual2/start2 $d/../qual2/q2.py
+$d/batch $d/../qual2/start2 $d/../qual2/q2.py
+$d/batch $d/../qual2/start2 $d/../qual2/q2.py
+$d/batch $d/../qual2/start2 $d/../qual2/q2.py
+$d/batch $d/../qual2/start2 $d/../qual2/q2.py
+$d/batch $d/../qual2/start2 $d/../qual2/q2.py
+$d/batch $d/../qual2/start2 $d/../qual2/q2.py

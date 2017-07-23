@@ -1,0 +1,5 @@
+#!/bin/bash
+p=`dirname $0`
+BATCH_SCRIPT_DIR=`(cd $p; pwd)`
+
+$BATCH_SCRIPT_DIR/batch $@ 3 1 3 4 find_stairs

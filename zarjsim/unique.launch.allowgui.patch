@@ -1,0 +1,19 @@
+diff -u old/unique.launch new/unique.launch
+--- old/unique.launch	2017-04-19 13:08:37.697326177 -0500
++++ new/unique.launch	2017-04-19 13:09:05.969325968 -0500
+@@ -7,6 +7,7 @@
+          roslaunch srcsim unique.launch init:=true walk_test:=walk
+        to automatically walk forward after harness detach. -->
+   <arg name="debug" default="false" />
++  <arg name="gui" default="true" />
+   <arg name="extra_gazebo_args" default=""/>
+   <arg name="grasping_init" default="true"/>
+   <arg name="grasping_init_wait_time" default="20"/>
+@@ -24,6 +25,7 @@
+     <env name="GAZEBO_MODEL_PATH" value="$(env GAZEBO_MODEL_PATH):$(find srcsim)/models"/>
+     <env name="GAZEBO_PLUGIN_PATH" value="$(find srcsim)/plugins"/>
+     <arg name="debug" value="$(arg debug)" />
++    <arg name="gui" value="$(arg gui)" />
+     <arg name="extra_gazebo_args" default="$(arg extra_gazebo_args)"/>
+     <arg name="paused" value="$(arg paused)" />
+     <arg name="verbose" value="$(arg verbose)" />

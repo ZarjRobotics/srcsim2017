@@ -1,0 +1,22 @@
+#!/bin/bash
+
+p=`dirname $0`
+BATCH_SCRIPT_DIR=`(cd $p; pwd)`
+
+for x in "$BATCH_SCRIPT_DIR/../srcsim" "$BATCH_SCRIPT_DIR/../../srcsim" ; do
+    if [ -d "$x" ] ; then
+        SRCSIM="$x"
+    fi
+done
+
+#!/bin/bash
+if [ -d "$SRCSIM" ] ; then
+    export GAZEBO_PLUGIN_PATH="${SRCSIM}/plugins:${GAZEBO_PLUGIN_PATH}"
+    export GAZEBO_MODEL_PATH="${SRCSIM}/models:${GAZEBO_MODEL_PATH}"
+    export LD_LIBRARY_PATH="${SRCSIM}/build/devel/lib:${LD_LIBRARY_PATH}"
+    export ROS_PACKAGE_PATH="${SRCSIM}:${ROS_PACKAGE_PATH}"
+    export PYTHONPATH="${SRCSIM}/build/devel/lib/python2.7/dist-packages:$PYTHONPATH"
+fi
+
+pushd $BATCH_SCRIPT_DIR/../fc
+./fc.py $@

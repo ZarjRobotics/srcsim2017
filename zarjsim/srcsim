@@ -1,0 +1,161 @@
+#!/bin/bash
+
+# Script to launch the src simulation environment,
+# By default, it will run 
+#   unique.launch init:=true
+# but if you invoke it with any other parameters, it will
+# launch what you specify instead.
+# See setup_machine.bash for more info and prep.
+
+# Another note:  you need to:
+#  sudo apt-get install ros-indigo-joint-state-controller ros-indigo-position-controllers
+# in order to get the joint state controller
+
+p=`dirname $0`
+d=`(cd $p; pwd)`
+
+if [ -n "$DISPLAY" ] ; then
+    PRIMUS=`which primusrun` 2>/dev/null
+fi
+
+LOG="extra_gazebo_args:=-r"
+GRASP="grasping_init:=true"
+GRASP_TIME="grasping_init_wait_time:=20"
+
+if [ -z "$SCRIPT" ] ; then
+    if [ -x "`which script`" ] ; then
+        SCRIPT="script -c"
+        SCRIPTOUT="/tmp/`date +%y%m%d.%H%M%S.log`"
+    else
+        SCRIPT=eval
+    fi
+fi
+
+# To use srcsim from source, you can pass 'source' as a paraemter,
+#  and this will hunt for it, or you can set SRCSIM to point to your
+#  source.  Note that you will likely have to move the 
+#  /opt/ros/indigo/share/srcsim aside for this to work.
+parsed=1
+while [ $parsed -gt 0 ] ; do
+    parsed=0
+    if [ "$1" = "source" ] ; then
+        shift
+        if [ -f "$CUSTOM_WORLD_PATH" ] ; then
+            echo Error: you want to specify source before random
+            exit 1
+        fi
+        parsed=$((parsed+1))
+        for x in "$d/../srcsim" "$d/../../srcsim" ; do
+            if [ -d "$x" ] ; then
+                SRCSIM="$x"
+            fi
+        done
+    fi
+
+    if [ "$1" = "original" ] ; then
+        SRCSIM=/opt/ros/indigo/share/srcsim.original
+        shift
+        if [ -f "$CUSTOM_WORLD_PATH" ] ; then
+            echo Error: you want to specify original before random
+            exit 1
+        fi
+        parsed=$((parsed+1))
+    fi
+
+    if [ "$1" = "nogui" ] ; then
+        NOGUI="gui:=false"
+        shift
+        parsed=$((parsed+1))
+    fi
+
+    if [ "$1" = "debug" ] ; then
+        DEBUG="debug:=true"
+        shift
+        parsed=$((parsed+1))
+    fi
+
+    if [ "$1" = "nolog" ] ; then
+        LOG=
+        shift
+        parsed=$((parsed+1))
+    fi
+
+    if [ "$1" = "nograsp" ] ; then
+        GRASP="grasping_init:=false"
+        shift
+        parsed=$((parsed+1))
+    fi
+
+    if [ -f "$1" ] ; then
+        export USE_CUSTOM_WORLD=1
+        export CUSTOM_WORLD_PATH="$1"
+        shift
+        parsed=$((parsed+1))
+    fi
+
+    if [ -n "$1" ] ; then
+        echo "$1" | grep -q '^random'
+        if [ $? -eq 0 ] ; then
+            export USE_CUSTOM_WORLD=1
+            export CUSTOM_WORLD_PATH=/tmp/random.world
+            if [ -n "$SRCSIM" ] ; then
+                pushd "$SRCSIM"/worlds
+            else
+                if [ -d /opt/ros/indigo/share/srcsim ] ; then
+                    pushd /opt/ros/indigo/share/srcsim/worlds
+                else
+                    if [ -d /opt/ros/indigo/share/srcsim.original ] ; then
+                        pushd /opt/ros/indigo/share/srcsim.original/worlds
+                    else
+                        echo "Error: could not find srcsim."
+                        exit 1
+                    fi
+                fi
+            fi
+            WHICHWORLD=
+            [ "$1" = "random1" ] && WHICHWORLD="t=1"
+            [ "$1" = "random2" ] && WHICHWORLD="t=2"
+            [ "$1" = "random3" ] && WHICHWORLD="t=3"
+            erb $WHICHWORLD unique.world.erb > $CUSTOM_WORLD_PATH
+            popd
+            shift
+            parsed=$((parsed+1))
+        fi
+    fi
+
+
+done
+
+if [ -z "$SRCSIM" ] ; then
+    if [ ! -d /opt/ros/indigo/share/srcsim ] ; then
+        if [ -d /opt/ros/indigo/share/srcsim.original ] ; then
+            SRCSIM=/opt/ros/indigo/share/srcsim.original
+        else
+            echo "Error:  could not find the srcsim directory."
+            exit 1
+        fi
+    fi
+fi
+
+cd ~
+# This was reported as useful in one of the issues online
+#   I extraoplated and added the ROS_MASTER_URI one as well; not
+#   sure if either are necessary
+export ROS_IP=127.0.0.1
+export ROS_MASTER_URI=http://$ROS_IP:11311
+
+ROS_PACKAGE_PATH=$d:$ROS_PACKAGE_PATH
+
+if [ -d "$SRCSIM" ] ; then
+    export GAZEBO_PLUGIN_PATH="${SRCSIM}/plugins:${GAZEBO_PLUGIN_PATH}"
+    export GAZEBO_MODEL_PATH="${SRCSIM}/models:${GAZEBO_MODEL_PATH}"
+    export LD_LIBRARY_PATH="${SRCSIM}/build/devel/lib:${LD_LIBRARY_PATH}"
+    export ROS_PACKAGE_PATH="${SRCSIM}:${ROS_PACKAGE_PATH}"
+    export PYTHONPATH="${SRCSIM}/build/devel/lib/python2.7/dist-packages:$PYTHONPATH"
+fi
+
+if [ $# -gt 0 ] ; then
+    $SCRIPT "$PRIMUS roslaunch -v srcsim $@ $DEBUG $NOGUI $LOG $GRASP $GRASP_TIME" $SCRIPTOUT
+else
+    $SCRIPT "$PRIMUS roslaunch -v srcsim unique.launch init:=true $DEBUG $NOGUI $LOG $GRASP $GRASP_TIME" $SCRIPTOUT
+fi

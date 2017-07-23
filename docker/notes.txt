@@ -1,0 +1,12 @@
+Building:
+
+docker build -t fcomputer:latest .
+
+Running:
+
+docker run --rm --name team_computer -p 2823:2823 -e ROS_MASTER_URI=http://192.168.13.28:11311  -e ROS_IP=192.168.13.28 fcomputer
+
+removing:
+
+docker stop team_computer
+docker rm team_computer

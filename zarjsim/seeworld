@@ -1,0 +1,26 @@
+#!/bin/bash
+# A little script to let you look at a world without having
+#  to fire up the whole shebang
+
+if [ ! -f "$1" ] ; then
+    echo Could not find world $1
+    exit 1
+fi
+killall gzserver
+echo Starting roscore
+roscore >/dev/null 2>&1 &
+roscorepid=$!
+echo Sleeping to let roscore settle
+sleep 1
+
+echo rosrun gzserver
+rosrun gazebo_ros gzserver $1 &
+echo sleep to let gzserver spin up...
+sleep 5
+echo rosrun gzclient
+rosrun gazebo_ros gzclient
+#rosrun gazebo_ros gazebo -p $STATEFILE
+kill $roscorepid
+sleep 1
+killall gzserver
+

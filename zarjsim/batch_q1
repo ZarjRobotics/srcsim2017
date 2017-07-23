@@ -1,0 +1,154 @@
+#!/bin/bash
+
+if [ ! -x "$3" ] ; then
+    echo "You must specify a world start command, script, and scoring dir."
+    exit 1
+fi
+
+p=`dirname $0`
+BATCH_SCRIPT_DIRECTORY=`(cd $p; pwd)`
+BEST_DIRECTORY=$BATCH_SCRIPT_DIRECTORY/../best_q1
+
+export BATCH_SIGNAL_DIR=`mktemp -d --tmpdir batch.XXXXXX`
+export ROS_IP=127.0.0.1
+export ROS_MASTER_URI=http://$ROS_IP:11311
+
+function is_best() {
+    [ -d $BEST_DIRECTORY ] || return 0
+    [ -z "$1" ] && return 1
+    res=`grep "Total position euclidean error (head):*" $BEST_DIRECTORY/batch.*/score.log | sed -e 's/^.*: //'`
+    c=`echo "$1 < $res" | bc 2>/dev/null`
+    [ -z "$c" ] && return 1
+    [ "$c" -eq 1 ] && return 0
+    return 1
+}
+
+function archive_best() {
+    mkdir -p $BEST_DIRECTORY
+    (
+        cd $BEST_DIRECTORY;
+        mkdir -p archive;
+        mv batch.* archive;
+        tar -chf - $BATCH_SIGNAL_DIR  | tar -x;
+        b=`basename $BATCH_SIGNAL_DIR`;
+        mv tmp/$b .;
+        rmdir tmp
+    )
+}
+
+function chill() {
+    t=0
+    while [ $t -lt $1 ] ; do
+        load=`cut -f 1 -d ' ' < /proc/loadavg`
+        c=`echo "$load <= 1.0" | bc`
+        [ "$c" -eq 1 ] && break
+        t=$((t+1))
+        sleep 1
+    done
+    if [ $t -ge $1 ] ; then
+        echo Error: did not reach load average 1.0 in $1 seconds
+        exit 2
+    fi
+}
+
+function cleanup() {
+    killall roslaunch 2>/dev/null && sleep 20
+    killall gzserver 2>/dev/null && sleep 5
+    killall rosmaster 2>/dev/null && sleep 5
+    killall controller_exec 2>/dev/null && sleep 5
+    killall rosout 2>/dev/null && sleep 5
+    killall -9 roslaunch 2>/dev/null
+    killall -9 gzserver 2>/dev/null
+    killall -9 rosmaster 2>/dev/null
+    killall -9 controller_exec 2>/dev/null
+    killall -9 rosout 2>/dev/null
+}
+
+function wait_for_signal() {
+    t=0
+    while [ $t -lt $1 ] ; do
+        [ -f $BATCH_SIGNAL_DIR/$2.signal ] && return 0
+        if [ "$#" -eq 3 ]; then
+            [ -f $BATCH_SIGNAL_DIR/$3.signal ] && return 0
+        fi
+        t=$((t+1))
+        sleep 1
+    done
+    return 1
+}
+
+function shutdown_start() {
+    pid=`ps -o pid,cmd --ppid $1 | grep roslaunch | sed -e 's/^ *//' | cut -f 1 -d ' '`
+    kill -s SIGINT $pid 2>/dev/null && sleep 20
+    kill -s SIGINT $1 2>/dev/null && sleep 3
+    kill -9 $1 $pid 2>/dev/null
+}
+
+function shutdown_script() {
+    kill -s SIGINT $1 2>/dev/null && sleep 5
+    kill -9 $1 2>/dev/null
+}
+
+cleanup
+
+[ -n "$ZARJ_CHILL" ] && chill $ZARJ_CHILL
+
+$1 >>$BATCH_SIGNAL_DIR/start.log 2>&1 &
+startpid=$!
+
+wait_for_signal 120 simup
+if [ $? -eq 0 ] ; then
+    gz=`ls -tr ~/.gazebo/log | tail -1`
+    ln -s ~/.gazebo/log/$gz/gzserver $BATCH_SIGNAL_DIR/gzserver
+    rosfile=`head -1 $BATCH_SIGNAL_DIR/start.log | sed -e 's/... logging to //'`
+    rosdir=`dirname $rosfile`
+    [ -d "$rosdir" ] && ln -s $rosdir $BATCH_SIGNAL_DIR/ros
+    sleep 5
+    $2 >>$BATCH_SIGNAL_DIR/script.log 2>&1 &
+    scriptpid=$!
+
+    wait_for_signal 1500 done fail
+    if [ $? -eq 0 ] ; then
+        sleep 5
+        shutdown_script $scriptpid
+        sleep 1
+        cleanup
+
+        echo 'expanding log '
+        gz log -e -f $BATCH_SIGNAL_DIR/gzserver/state.log --filter *.pose/*.pose -z 60 > $BATCH_SIGNAL_DIR/qual_1.log
+        result_log=`ls -tr ~/src_qual1_* | tail -1`
+        cp $result_log $BATCH_SIGNAL_DIR/
+        cd $3
+        echo "scoring " $BATCH_SIGNAL_DIR
+        ./scoring_q1.rb $result_log $BATCH_SIGNAL_DIR/qual_1.log > $BATCH_SIGNAL_DIR/score.log
+
+        result=`grep "Total position euclidean error (head):*" $BATCH_SIGNAL_DIR/score.log | sed -e 's/^.*: //'`
+    fi
+    shutdown_script $scriptpid
+fi
+
+if [ -z "$result" ] ; then
+    # Java exceptions
+    # C  0x0000000000b553a0
+    grep -q 'C.*0x000000' $BATCH_SIGNAL_DIR/start.log && result="Java Exception"
+    #C  [liborocos-rtt-gnulinux.so.2.8+0x159c4a]  RTT::ComponentLoader::unloadComponent(RTT::TaskContext*)+0x6a
+    grep -q 'C.*liborocos.*RTT::ComponentLoader::unloadComponent' $BATCH_SIGNAL_DIR/start.log && result="unload Exception"
+    # [Err] [Connection.hh:267] Header is empty
+    grep -q 'Header is empty' $BATCH_SIGNAL_DIR/start.log && result="Header is empty"
+    # us.ihmc.tools.exceptions.NoConvergenceException
+    grep -q 'NoConvergenceException' $BATCH_SIGNAL_DIR/start.log && result="NoConvergenceException"
+    # java.lang.RuntimeException: java.net.BindException: Address already in use
+    grep -q 'java.net.BindException: Address already in use' $BATCH_SIGNAL_DIR/start.log && result="Address already in use"
+    #X Error of failed request:  BadDrawable (invalid Pixmap or Window parameter)
+    grep -q 'X Error of failed request:  BadDrawable' $BATCH_SIGNAL_DIR/start.log && result="X Error: BadDrawable"
+    [ -z "$result" ] && result="failed"
+else
+    is_best $result && echo --- NEW RECORD ---
+    is_best $result && archive_best
+fi
+
+shutdown_start $startpid
+sleep 1
+cleanup
+
+echo $BATCH_SIGNAL_DIR: $result

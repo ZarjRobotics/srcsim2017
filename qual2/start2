@@ -1,0 +1,16 @@
+#!/bin/bash
+cd ~
+
+PRIMUS=`which primusrun` 2>/dev/null
+
+# This was reported as useful in one of the issues online
+#   I extraoplated and added the xxx one as well; not
+#   sure if either are necessary
+export ROS_IP=127.0.0.1
+export ROS_MASTER_URI=http://$ROS_IP:11311
+
+if [ -n "$BATCH_SIGNAL_DIR" ] ; then
+    bash -c "sleep 90; touch $BATCH_SIGNAL_DIR/simup.signal" &
+fi
+
+$PRIMUS roslaunch -v srcsim qual2.launch extra_gazebo_args:="-r" init:="true" 2>&1

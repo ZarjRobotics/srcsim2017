@@ -1,0 +1,293 @@
+#!/bin/bash
+
+
+export PYTHONBUFFERED=x
+
+if [ -z "$DISPLAY" ] ; then
+    echo Error: even if you are trying to run headless, you need DISPLAY.
+    exit 3
+fi
+
+TESTSCRIPT=`which script`
+if [ -z "$TESTSCRIPT" ] ; then
+    echo "Error: you need to have script (apt-get install bsdutils)"
+    exit 4
+fi
+
+
+p=`dirname $0`
+BATCH_SCRIPT_DIR=`(cd $p; pwd)`
+
+export BATCH_RESULTS_DIR=`mktemp -d --tmpdir batch.XXXXXX`
+chmod a+rwx $BATCH_RESULTS_DIR
+export BATCH_LOG=$BATCH_RESULTS_DIR/batch.log
+export SRCSIM_LOG=$BATCH_RESULTS_DIR/srcsim.log
+
+for x in "$BATCH_SCRIPT_DIR/../srcsim" "$BATCH_SCRIPT_DIR/../../srcsim" ; do
+    if [ -d "$x" ] ; then
+        SRCSIM="$x"
+    fi
+done
+
+if [ -d "$SRCSIM" ] ; then
+    if [ "$1" = "source" ] ; then
+        export GAZEBO_PLUGIN_PATH="${SRCSIM}/plugins:${GAZEBO_PLUGIN_PATH}"
+        export GAZEBO_MODEL_PATH="${SRCSIM}/models:${GAZEBO_MODEL_PATH}"
+        export LD_LIBRARY_PATH="${SRCSIM}/build/devel/lib:${LD_LIBRARY_PATH}"
+        export ROS_PACKAGE_PATH="${SRCSIM}:${ROS_PACKAGE_PATH}"
+        export PYTHONPATH="${SRCSIM}/build/devel/lib/python2.7/dist-packages:$PYTHONPATH"
+        export SOURCE="$1"
+        if [ -z "$FC" ] ; then
+            export FC="../zarjsim/fcsource"
+        fi
+        shift
+    fi
+fi
+
+
+WORLD_SPEC=random
+WORLD_FILE=/tmp/random.world
+echo "$1" | grep -q '^world'
+if [ $? -eq 0 ] ; then
+    n=`echo $1 | sed -e 's/^world//'`
+    if [ -d "$SRCSIM" ] ; then
+        WORLD_FILE="$SRCSIM/worlds/final_$n.world"
+    else
+        WORLD_FILE=`find /opt -name final_$n.world`
+    fi
+    WORLD_SPEC=$WORLD_FILE
+    shift
+fi
+
+if [ -z "$FC" ] ; then
+    export FC="./fc.py"
+fi
+
+function cleanup() {
+    fcpids=`ps --noheaders -o pid,cmd -C "python"  | grep fc.py | sed -e 's/^ *//g' | cut -f 1 -d ' '`
+    ocpid=`ps --noheaders -o pid,cmd -C "python"  | grep oc.py | cut -f 1 -d ' '`
+    finishpids=`ps --noheaders -o pid,cmd -C "python"  | grep finished.py | sed -e 's/^ *//g' | cut -f 1 -d ' '`
+    harnesspids=`ps --noheaders -o pid,cmd -C "python"  | grep harnessed.py | sed -e 's/^ *//g' | cut -f 1 -d ' '`
+    killall roslaunch 2>/dev/null && sleep 20
+    killall gzserver 2>/dev/null && sleep 5
+    killall rosmaster 2>/dev/null && sleep 5
+    killall controller_exec 2>/dev/null && sleep 5
+    killall rosout 2>/dev/null && sleep 5
+    kill $fcpids 2>/dev/null && sleep 2
+    if [ -n "$FCUSER" ] ; then
+        if [ -n "$fcpids" ] ; then
+            ssh -l $FCUSER localhost "kill $fcpids && sleep 2"
+        fi
+    fi
+    kill $ocpid 2>/dev/null && sleep 2
+    kill $finishpids 2>/dev/null && sleep 2
+    kill $harnesspids 2>/dev/null && sleep 2
+    killall -9 roslaunch 2>/dev/null
+    killall -9 gzserver 2>/dev/null
+    killall -9 rosmaster 2>/dev/null
+    killall -9 controller_exec 2>/dev/null
+    killall -9 rosout 2>/dev/null
+    kill -9 $fcpids 2>/dev/null
+    if [ -n "$FCUSER" ] ; then
+        if [ -n "$fcpids" ] ; then
+            ssh -l $FCUSER localhost "kill -9 $fcpids"
+        fi
+    fi
+    kill -9 $ocpid 2>/dev/null
+    kill -9 $finishpids 2>/dev/null
+    kill -9 $harnesspids 2>/dev/null
+}
+
+if [ $1 = "cleanup" ] ; then
+    cleanup
+    exit 0
+fi
+
+if [ $# -lt 5 ] ; then
+    echo Error: specify start task, checkpoint, hoped for task checkpoint, and macro
+    exit 1
+fi
+
+start_task=$1
+start_checkpoint=$2
+end_task=$3
+end_checkpoint=$4
+start_macro=$5
+
+function shutdown_start() {
+    kill -s SIGINT $1 2>/dev/null && sleep 9
+    kill -9 $1 $pid 2>/dev/null
+}
+
+function shutdown_script() {
+    kill -s SIGINT $1 2>/dev/null && sleep 9
+    kill -9 $1 2>/dev/null
+}
+
+function wait_for_message() {
+    t=0
+    while [ $t -lt $2 ] ; do
+        grep -q "$3" "$1"
+        if [ $? -eq 0 ] ; then
+            return 0
+        fi
+        t=$((t+1))
+        sleep 1
+    done
+    return 1
+}
+
+function wait_for_harness() {
+    now=`date +%s`
+    end=$((now+$1))
+    while [ $now -lt $end ] ; do
+        $BATCH_SCRIPT_DIR/harnessed.py
+        if [ $? -eq 0 ] ; then
+            return 0
+        fi
+        now=`date +%s`
+        sleep 1
+
+        if [ -f $BATCH_RESULTS_DIR/fc.log ] ; then
+            grep -q "ZarjConfused" $BATCH_RESULTS_DIR/fc.log
+            if [ $? -eq 0 ] ; then
+                t=`date`
+                echo "$t ZarjConfused while waiting for harness" >> $BATCH_LOG
+                return 1
+            fi
+        fi
+    done
+    return 1
+}
+
+function wait_for_result() {
+    now=`date +%s`
+    end=$((now+$1))
+    while [ $now -lt $end ] ; do
+        $BATCH_SCRIPT_DIR/finished.py $2 $3
+        if [ $? -eq 0 ] ; then
+            return 0
+        fi
+        now=`date +%s`
+        sleep 1
+
+        grep -q "ZarjConfused" $BATCH_RESULTS_DIR/fc.log
+        if [ $? -eq 0 ] ; then
+            t=`date`
+            echo "$t ZarjConfused while waiting for result" >> $BATCH_LOG
+            return 1
+        fi
+    done
+    return 1
+}
+
+function get_out() {
+    t=`date`
+    echo "$t $5" >> $BATCH_LOG
+    echo "$t $5"
+    if [ $2 -ne 0 ] ; then
+        shutdown_script $2
+    fi
+    if [ $3 -ne 0 ] ; then
+        shutdown_script $3
+    fi
+    shutdown_start $1
+    cleanup
+    exit $4
+}
+
+cleanup
+
+t=`date`
+echo $t Starting srcsim.  Results in $BATCH_RESULTS_DIR
+echo $t Starting srcsim.  >> $BATCH_LOG
+srcsim $SOURCE $WORLD_SPEC >>$SRCSIM_LOG 2>&1 &
+startpid=$!
+
+t=`date`
+echo $t Delaying for 60 seconds >> $BATCH_LOG
+sleep 60
+
+echo $t Waiting for harness  >> $BATCH_LOG
+#wait_for_harness 300 >> $BATCH_LOG
+wait_for_harness 300
+if [ $? -ne 0 ] ; then
+    get_out $startpid 0 0 2 "Error: Never harnessed"
+fi
+
+gz=`ls -tr ~/.gazebo/log | tail -1`
+ln -s ~/.gazebo/log/$gz/gzserver $BATCH_RESULTS_DIR/gzserver
+cp $WORLD_FILE $BATCH_RESULTS_DIR/
+rosfile=`grep "... logging to" $SRCSIM_LOG | head -1 | sed -e 's/... logging to //'`
+rosdir=`dirname $rosfile`
+[ -d "$rosdir" ] && ln -s $rosdir $BATCH_RESULTS_DIR/ros
+
+t=`date`
+echo $t Instructing srcsim to $start_task $start_checkpoint >> $BATCH_LOG
+rosservice call /srcsim/finals/start_task $start_task $start_checkpoint >> $BATCH_LOG 2>&1
+
+t=`date`
+echo $t Delaying for 10 seconds >> $BATCH_LOG
+sleep 10
+
+echo $t "Waiting for harness (second time)" >> $BATCH_LOG
+wait_for_harness 500
+if [ $? -ne 0 ] ; then
+    get_out $startpid 0 0 2 "Error: Never harnessed (check 2)"
+fi
+
+t=`date`
+echo $t Starting the Field Controller >> $BATCH_LOG
+pushd $BATCH_SCRIPT_DIR/../fc >/dev/null 2>&1
+
+export ZARJ_IMAGE_DUMP=$BATCH_RESULTS_DIR
+export ZARJ_IGNORE_HARNESS=okay
+if [ -n "$FCUSER" ] ; then
+    FCCMD="$BATCH_SCRIPT_DIR/$FC"
+    ssh -l $FCUSER localhost "bash -l -c \"stdbuf -oL $FCCMD $start_task $start_checkpoint $start_macro\"" >>$BATCH_RESULTS_DIR/fc.log 2>&1 &
+    fcpid=$!
+else
+    stdbuf -oL $FC $start_task $start_checkpoint $start_macro >>$BATCH_RESULTS_DIR/fc.log 2>&1 &
+    fcpid=$!
+fi
+
+t=`date`
+echo $t Waiting to start $start_task $start_checkpoint >> $BATCH_LOG
+
+wait_for_result 600 $start_task $start_checkpoint
+if [ $? -ne 0 ] ; then
+    get_out $startpid $fcpid 0 3 "Error: Checkpoint never started"
+fi
+
+t=`date`
+echo $t Field Controller started and we reached initial state >> $BATCH_LOG
+
+wait_for_result 3600 $end_task $end_checkpoint
+if [ $? -ne 0 ] ; then
+    get_out $startpid $fcpid 0 3 "Error: did not reach $end_task $end_checkpoint"
+fi
+
+# This is a hack
+if [ $start_task  -eq 1 ] ; then
+    t=`date`
+    echo $t "Waiting to traverse the finish box" >> $BATCH_LOG
+
+    wait_for_message $BATCH_RESULTS_DIR/fc.log 600 "I am out of the Task1 Wilderness"
+    if [ $? -ne 0 ] ; then
+        get_out $startpid $fcpid 0 3 "Error: did not get out of the wilderness"
+    fi
+
+    t=`date`
+    echo $t "Okay now let's get out of the start box" >> $BATCH_LOG
+    kill $fcpid && sleep 10
+    kill -9 $fcpid && sleep 10
+
+    stdbuf -oL $FC 2 1 get_out_of_startbox >>$BATCH_RESULTS_DIR/fc.log 2>&1 &
+    fcpid=$!
+    wait_for_result 500 2 1
+    if [ $? -ne 0 ] ; then
+        get_out $startpid $fcpid 0 3 "Error: did not get out of the start box in task 2"
+    fi
+fi
+
+get_out $startpid $fcpid 0 0 "Success!"

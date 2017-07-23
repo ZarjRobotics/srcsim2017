@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format2.xsd"
+schematypens="http://www.w3.org/2001/XMLSchema"?>
+
+<package format="2">
+  <name>zarjsim</name>
+  <version>0.0.1</version>
+  <description>Space Robotics Challenge - Team ZARJ</description>
+  <maintainer email="jwhite@zarj.org">Jeremy White</maintainer>
+  <license>Apache License 2.0</license>
+
+  <depend>srcsim</depend>
+
+</package>

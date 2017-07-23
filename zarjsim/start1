@@ -1,0 +1,20 @@
+#!/bin/bash
+p=`dirname $0`
+d=`(cd $p; pwd)`
+
+PRIMUS=`which primusrun` 2>/dev/null
+
+if [ "$1" = "nogui" ] ; then
+    PRIMUS=
+    NOGUI="gui:=false"
+fi
+
+cd ~
+# This was reported as useful in one of the issues online
+#   I extraoplated and added the ROS_MASTER_URI one as well; not
+#   sure if either are necessary
+export ROS_IP=127.0.0.1
+export ROS_MASTER_URI=http://$ROS_IP:11311
+
+ROS_PACKAGE_PATH=$d:$ROS_PACKAGE_PATH
+$PRIMUS roslaunch -v zarjsim qual1.launch $NOGUI extra_gazebo_args:="-r" init:=true 2>&1
